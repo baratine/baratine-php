@@ -39,7 +39,7 @@ class Jamp
         }
         
         $headers = $array[1];
-        $toAddress = $array[2];
+        $serviceName = $array[2];
         $queryId = $array[3];
         $result = $array[4];
         
@@ -53,7 +53,7 @@ class Jamp
           $result = $resultArray;
         }
         
-        $msg = new ErrorMessage($headers, $toAddress, $queryId, $result);
+        $msg = new ErrorMessage($headers, $serviceName, $queryId, $result);
         
         return $msg;
       }
@@ -66,7 +66,7 @@ class Jamp
         $headers = $array[1];
         $fromAddress = $array[2];
         $queryId = $array[3];
-        $toAddress = $array[4];
+        $serviceName = $array[4];
         $methodName = $array[5];
                 
         $args = null;
@@ -82,7 +82,7 @@ class Jamp
         $msg = new QueryMessage($headers,
                                 $fromAddress,
                                 $queryId,
-                                $toAddress,
+                                $serviceName,
                                 $methodName,
                                 $args);
         
@@ -95,20 +95,20 @@ class Jamp
         }
         
         $headers = $array[1];
-        $toAddress = $array[2];
+        $serviceName = $array[2];
         $methodName = $array[3];
         
-        $parameters = null;
+        $args = null;
         
         if (count($array) > 4) {
-          $parameters = array();
+          $args = array();
           
           for ($i = 4; $i < count($array); $i++) {
-            $parameters[] = $array[$i];
+            $args[] = $array[$i];
           }
         }
         
-        $msg = new SendMessage($headers, $toAddress, $methodName, $parameters);
+        $msg = new SendMessage($headers, $serviceName, $methodName, $args);
         
         return $msg;
       }
@@ -142,20 +142,38 @@ abstract class Message
   }
   
   protected abstract function serializeImpl();
+  
+  public abstract function toUrl(/* string */ $baseUrl);
+  
+  protected function buildUrl(/* string */ $baseUrl,
+                              /* string */ $serviceName,
+                              /* string */ $methodName,
+                              array $args = null)
+  {
+    $url = $baseUrl . $serviceName . '?m=' . $methodName;
+    
+    for ($i = 0; $i < count($args); $i++) {
+      $arg = $args[$i];
+      
+      $url .= '&p' . $i . '=' . $arg;
+    }
+    
+    return $url;
+  }
 }
 
 class SendMessage extends Message
 {
-  private $address;
-  private $method;
+  private $serviceName;
+  private $methodName;
   private $args;
 
-  function __construct($headers, $address, $method, $args)
+  function __construct($headers, $serviceName, $methodName, $args)
   {
     parent::__construct($headers);
     
-    $this->address = $address;
-    $this->method = $method;
+    $this->serviceName = $serviceName;
+    $this->methodName = $methodName;
         
     $this->args = $args;
   }
@@ -166,8 +184,8 @@ class SendMessage extends Message
     
     $array[] = 'send';
     $array[] = $this->headers;
-    $array[] = $this->address;
-    $array[] = $this->method;
+    $array[] = $this->serviceName;
+    $array[] = $this->methodName;
     
     if ($this->args !== null) {
       foreach ($this->args as $arg) {
@@ -180,15 +198,7 @@ class SendMessage extends Message
   
   public function toUrl(/* string */ $baseUrl)
   {
-    $url = $baseUrl . $this->address . '?m=' . $this->method;
-    
-    for ($i = 0; $i < count($this->args); $i++) {
-      $arg = $this->args[$i];
-      
-      $url .= '&p' . $i . '=' . $arg;
-    }
-    
-    return $url;
+    return $this->buildUrl($baseUrl, $this->serviceName, $this->methodName, $this->args);
   }
 }
 
@@ -197,21 +207,21 @@ class QueryMessage extends Message
   private $fromAddress;
   private $queryId;
 
-  private $address;
-  private $method;
+  private $serviceName;
+  private $methodName;
   private $args;
   
   private $listeners;
 
-  function __construct($headers, $fromAddress, $queryId, $address, $method, $args)
+  function __construct($headers, $fromAddress, $queryId, $serviceName, $methodName, $args)
   {
     parent::__construct($headers);
         
     $this->fromAddress = $fromAddress;
     $this->queryId = $queryId;
     
-    $this->address = $address;
-    $this->method = $method;
+    $this->serviceName = $serviceName;
+    $this->methodName = $methodName;
     
     if ($args !== null) {
       $this->args = array();
@@ -242,8 +252,8 @@ class QueryMessage extends Message
     $array[] = $this->headers;
     $array[] = $this->fromAddress;
     $array[] = $this->queryId;
-    $array[] = $this->address;
-    $array[] = $this->method;
+    $array[] = $this->serviceName;
+    $array[] = $this->methodName;
     
     if ($this->args !== null) {
       foreach ($this->args as $arg) {
@@ -273,15 +283,12 @@ class QueryMessage extends Message
   
   public function toUrl(/* string */ $baseUrl)
   {
-    $url = $baseUrl . $this->address . '?m=' . $this->method;
-    
-    for ($i = 0; $i < count($this->args); $i++) {
-      $arg = $this->args[$i];
-      
-      $url .= '&p' . $i . '=' . $arg;
-    }
-    
-    return $url;
+    return $this->buildUrl($baseUrl, $this->serviceName, $this->methodName, $this->args);
+  }
+  
+  public function getQueryId()
+  {
+    return $this->queryId;
   }
 }
 
@@ -289,16 +296,16 @@ class ReplyMessage extends Message
 {
   private $fromAddress;
   private $queryId;
-  private $result;
+  private $value;
   
-  function __construct($headers, $fromAddress, $queryId, $result)
+  function __construct($headers, $fromAddress, $queryId, $value)
   {
     parent::__construct($headers);
     
     $this->fromAddress = $fromAddress;
     $this->queryId = $queryId;
     
-    $this->result = $result;
+    $this->value = $value;
   }
   
   protected function serializeImpl()
@@ -309,9 +316,24 @@ class ReplyMessage extends Message
     $array[] = $this->headers;
     $array[] = $this->fromAddress;
     $array[] = $this->queryId;
-    $array[] = $this->result;
+    $array[] = $this->value;
     
     return $array;
+  }
+  
+  public function toUrl(/* string */ $baseUrl)
+  {
+    throw new Exception('unsupported operation');
+  }
+  
+  public function getQueryId()
+  {
+    return $this->queryId;
+  }
+  
+  public function getValue()
+  {
+    return $this->value;
   }
 }
 
@@ -319,16 +341,16 @@ class ErrorMessage extends Message
 {
   private $address;
   private $queryId;
-  private $result;
+  private $error;
   
-  function __construct($headers, $toAddress, $queryId, $result)
+  function __construct($headers, $toAddress, $queryId, $error)
   {
     parent::__construct($headers);
     
     $this->address = $toAddress;
     $this->queryId = $queryId;
     
-    $this->result = $result;
+    $this->error = $error;
   }
   
   protected function serializeImpl()
@@ -339,11 +361,74 @@ class ErrorMessage extends Message
     $array[] = $this->headers;
     $array[] = $this->address;
     $array[] = $this->queryId;
-    $array[] = $this->result;
+    $array[] = $this->error;
     
     return $array;
   }
+  
+  public function toUrl(/* string */ $baseUrl)
+  {
+    throw new Exception('unsupported operation');
+  }
+  
+  public function getQueryId()
+  {
+    return $this->queryId;
+  }
+  
+  public function getError()
+  {
+    return $this->error;
+  }
 }
+
+abstract class Response
+{
+  private $status;
+  private $value;
+  private $error;
+  private $isError;
+  
+  private $rawResponse;
+  
+  public function getStatus() { return $this->status; }
+  public function setStatus(/* string */ $status) { $this->status = $status; }
+  
+  public function getError() { return $this->error; }
+  public function setError(object $error) { $this->error = $error; }
+  
+  public function getValue() { return $this->value; }
+  public function setValue($value) { $this->value = $value; }
+  
+  public function getRawResponse() { return $this->rawResponse; }
+  public function setRawResponse(/* string */ $str) { return $this->rawResponse = $str; }
+  
+  public function isError() { return $this->isError; }
+  public function setIsError(/* bool */ $isError) { $this->isError = $isError; }
+}
+
+class RawResponse extends Response
+{
+  private $str;
+
+  protected function __construct(/* string */ $rawResponse)
+  {
+    $this->setRawResponse($str);
+  }
+}
+
+class ErrorResponse extends RawResponse
+{
+  function __construct(/* string */ $rawResponse, /* string */ $status, object $error)
+  {
+    parent::__construct($rawResponse);
+    
+    $this->setStatus($status);
+    $this->setError($error);
+    $this->setIsError(true);
+  }
+}
+
 
 abstract class Listener
 {

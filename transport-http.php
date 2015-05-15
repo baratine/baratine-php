@@ -2,35 +2,34 @@
 
 namespace baratine;
 
-require_once('jamp.php');
-require_once('jamp-client.php');
-
-class HttpTransport
-{
-  private $url;
-  private $client;
+class HttpTransport //extends Transport
+{ 
+  private $curl;
   
-  private $isClosed;
-  
-  private $currentPullRequest;
-  
-  function __construct(/* string */ $url, JampClient $client)
+  function __construct(/* string */ $url)
   {
-    $this->url = $url;
-    $this->client = $client;
+    parent::__construct($url);
     
-    $this->isClosed = false;
+    $this->curl = curl_init();
   }
   
-  public function submitRequest(Request $request)
+  public function send(Message $msg)
   {
-    if ($this->isClosed) {
-      throw new Exception('connection already closed');
+    if ($this->curl === null) {
+      throw new \Exception('connection already closed');
+    }
+  }
+  
+  public function query(QueryMessage $msg)
+  {
+    if ($this->curl === null) {
+      throw new \Exception('connection already closed');
     }
     
-    $url = $request->msg->toUrl($this->url);
+    $url = $msg->toUrl($this->url);
     
-    $curl = curl_init($url);
+    $curl = $this->curl;
+    curl_setopt($curl, CURLOPT_URL, $url);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     
     /*
@@ -48,41 +47,44 @@ class HttpTransport
     
     $json = curl_exec($curl);
     
-    if ($json !== false) {
-      //$request->sent($this->client);
-      
-      $value = \json_decode($json);
-      
-      if (is_array($value)) {
-        $value = @$value[0];
-      }
-      
-      $request->completed($this->client, $value);
-      
-      //$this->client->onMessage($value);
-    }
-    else {
-      error_log('error submitting request: ' . curl_error($curl));
+    if ($json === false) {
+      throw new \Exception('error submitting message: ' . curl_error($curl));
     }
     
-    curl_close($curl);
+    $response = \json_decode($json);
+    
+    if (! isset($response->status)) {
+      throw new \Exception('status not found in response: ' . $json);
+    }
+    else if ($response->status != 'ok') {
+      $error = $json;
+      
+      //if (isset($response->error)) {
+      //  $error = $response->error;
+      //}
+      
+      throw new \Exception('error response: ' . $error);
+    }
+    
+    $value = @$response->value;
+    
+    return $value;
   }
   
-  private function poll()
+  public function poll()
   {
-    if ($this->isClosed) {
+    if ($this->curl === null) {
       return;
     }
     
-    $curl = curl_init($this->url);
-    curl_setopt($curl, CURLOPT_POST, true);
+    $curl = $this->curl;
+    curl_setopt($curl, CURLOPT_URL, $url);
+    curl_setopt($curl, CURLOPT_GET, true);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type: x-application/jamp-pull'));
-    curl_setopt($curl, CURLOPT_POSTFIELDS, array('[]'));
+    //curl_setopt($curl, CURLOPT_POSTFIELDS, array('[]'));
     
     $json = curl_exec($curl);
-    
-    var_dump($json);
         
     if ($json !== false) {
       $list = json_decode($json);
@@ -92,22 +94,12 @@ class HttpTransport
     else {
       error_log('error polling: url=' . curl_error($curl));
     }
-    
-    curl_close($curl);
   }
     
   public function close()
   {
-    $this->isClosed = true;
-    
-    if ($this->pullRequest !== null) {
-      try {
-        $this->pullRequest->abort();
-      }
-      catch (Exception $e) {
-      }
-    }
+    curl_close($this->curl);
+    $this->curl = null;
   }
-  
 }
 

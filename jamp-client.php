@@ -3,7 +3,7 @@
 namespace baratine;
 
 require_once('jamp.php');
-require_once('transport-http.php');
+require_once('transport.php');
 
 abstract class JampClient
 {
@@ -19,26 +19,32 @@ abstract class JampClient
                                 
   public abstract function query(/* string */ $service,
                                  /* string */ $method,
+                                 Result $result,
                                  array $args = null,
-                                 callable $callback,
                                  array $headerMap = null);
 
+  public abstract function querySync(/* string */ $service,
+                                     /* string */ $method,
+                                     array $args = null,
+                                     array $headerMap = null);
+
+  public abstract function poll();
+
   public abstract function close();
-  public abstract function reconnect();
 }
 
 class JampClientImpl extends JampClient
 {
   private $transport;
   
-  private $requestMap;
+  private $resultMap;
   private $listenerMap;
   
   private $queryCount;
   
-  function __construct(/* string */ $url)
+  protected function __construct(/* string */ $url)
   {
-    $this->requestMap = array();
+    $this->resultMap = array();
     $this->listenerMap = array();
     $this->queryCount = 0;
     
@@ -53,107 +59,11 @@ class JampClientImpl extends JampClient
     
     if (strpos($url, 'http:') === 0
         || strpos($url, 'https:') === 0) {
-      $this->transport = new HttpTransport($url, $this);
+      $this->transport = new HttpPushPullTransport($url);
     }
     else {
       throw new \Exception('invalid url: ' . $url);
     }
-  }
-  
-  public function onMessage(Message $msg)
-  {
-    if ($msg instanceof ReplyMessage) {
-      $queryId = $msg->queryId;
-      $request = $this->removeRequest($queryId);
-      
-      if ($request !== null) {
-        $request->completed($this, $msg->result);
-      }
-      else {
-        error_log('cannot find request for query id: ' . queryId);
-      }
-    }
-    else if ($msg instanceof ErrorMessage) {
-      $queryId = $msg->queryId;
-      $request = $this->removeRequest($queryId);
-      
-      if ($request !== null) {
-        $request->error($this, $msg->result);
-      }
-      else {
-        error_Log('cannot find request for query id: ' . queryId);
-      }
-    }
-    else if ($msg instanceof SendMessage) {
-      $listener = $this->getListener($msg->address);
-      
-      $method = $msg->method;
-      
-      $listener->$method($msg->parameters);
-    }
-    else {
-      throw new Exception('unexpected jamp message type: ' . msg);
-    }
-  }
-  
-  public function onMessageArray(array $array)
-  {
-    foreach ($array as $json) {
-      $msg = Jamp::unserializeArray($json);
-      
-      $this->onMessage($msg);
-    }
-  }
-  
-  private function expireRequests()
-  {
-    $expiredRequests = array();
-    
-    foreach ($this->requestMap as $queryId => $request) {
-      $expiredRequests[] = $request;
-    }
-    
-    foreach ($expiredRequests as $request) {
-      $this->removeRequrst($request->queryId);
-      
-      $request->error($this, 'request expired');
-    }
-  }
-  
-  public function removeRequest(/* int */ $queryId)
-  {
-    $request = $this->requestMap[$queryId];
-    
-    unset($this->requestMap[$queryId]);
-    
-    return $request;
-  }
-  
-  public function close()
-  {
-    $this->transport->close();
-  }
-  
-  public function reconnect()
-  {
-    $this->transport->reconnect();
-  }
-  
-  public function submitRequest(Request $request)
-  {
-    $this->transport->submitRequest($request);
-  }
-  
-  public function onMessageJson(/* string */ $json, JampClient $client)
-  {
-    $msg = Jamp::unserialize($json);
-    
-    $client->onMessage($msg);
-  }
-  
-  private function getListener(/* string */ $listenerAddress)
-  {
-    return $this->listenerMap[$listenerAddress];
   }
   
   public function send(/* string */ $service,
@@ -165,16 +75,84 @@ class JampClientImpl extends JampClient
     
     $msg = new SendMessage($headerMap, $service, $method, $args);
     
-    $request = $this->createSendRequest($queryId, $msg);
-    
-    $this->submitRequest($request);
+    return $this->transport->send($msg);
   }
   
   public function query(/* string */ $service,
                         /* string */ $method,
+                        Result $result,
                         array $args = null,
-                        callable $callback = null,
                         array $headerMap = null)
+  {
+    $msg = $this->initQuery($service, $method, $result, $args, $headerMap);
+    
+    $msgArray = $this->transport->query($msg);
+
+    foreach ($msgArray as $msg) {
+      $this->onMessage($msg);
+    }
+    
+    return count($msgArray);
+  }
+  
+  public function querySync(/* string */ $service,
+                            /* string */ $method,
+                            array $args = null,
+                            array $headerMap = null)
+  {
+    $result = new Result();
+    
+    /*
+    $msg = $this->initQuery($service, $method, $result, $args, $headerMap);
+  
+    $response = $this->transport->querySync($msg);
+    
+    var_dump($response);
+    die();
+    */
+    
+    $this->query($service, $method, $result, $args, $headerMap);
+    
+    $count = 0;
+    
+    while (! $result->isCompleted() && ! $result->isFailed()) {
+      if ($count++ > 5) {
+        throw new \Exception('result not completed: ' . $service . '?m=' . $method);
+      }
+      
+      $this->poll();
+    }
+    
+    if ($result->isCompleted()) {
+      return $result->getValue();
+    }
+    else {
+      $error = $result->getError();
+      
+      if (is_array($error)) {
+        $sb = '';
+        
+        $i = 0;
+        foreach ($error as $str) {
+          if ($i++ !== 0) {
+            $sb .= ', ';
+          }
+          
+          $sb .= $str;
+        }
+        
+        $error = $sb;
+      }
+      
+      throw new \Exception($error);
+    }
+  }
+  
+  private function initQuery(/* string */ $service,
+                             /* string */ $method,
+                             Result $result = null,
+                             array $args = null,
+                             array $headerMap = null)
   {
     $queryId = $this->queryCount++;
     
@@ -188,135 +166,122 @@ class JampClientImpl extends JampClient
       }
     }
     
-    $request = $this->createQueryRequest($queryId, $msg, $callback);
-    
-    $this->submitRequest($request);
-    
-    return $request->getResult();
-  }
-  
-  public function onFail($error)
-  {
-    error_log('error: ' . json_encode($error));
-  }
-  
-  private function createQueryRequest(/* int */ $queryId, Message $msg, callable $callback = null)
-  {
-    $request = new QueryRequest($queryId, $msg, $callback);
-    
-    $this->requestMap[$queryId] = $request;
-    
-    return $request;
-  }
-  
-  private function createSendRequest(/* int */ $queryId, Message $msg)
-  {
-    $request = new SendRequest($queryId, $msg);
-    
-    $this->requestMap[$queryId] = $request;
-    
-    return $request;
-  }
-}
-
-class Request
-{
-  public $queryId;
-  public $msg;
-  
-  private $expirationTime;
-  
-  function __construct(/* int */ $queryId, Message $msg, /* int */ $timeout = null)
-  {
-    $this->queryId = $queryId;
-    $this->msg = $msg;
-    
-    $this->expirationTime = $timeout;
-    
-    if ($timeout == null) {
-      $this->expirationTime = time() + 60 * 5;
-    }
-  }
-  
-  public function isExpired(/* int */ $now)
-  {
-    if ($now === null) {
-      $now = time();
+    if ($result !== null) {
+      $this->resultMap[$queryId] = $result;
     }
     
-    return ($now - $this->expirationTime) > 0;
+    return $msg;
   }
   
-  public function sent(JampClient $client)
+  public function poll()
   {
-  }
-  
-  public function completed(JampClient $client, $value)
-  {
-    $client->remove($this->queryId);
-  }
-  
-  public function error(JampClient $client, $value)
-  {
-    $client->remove($queryId);
-    
-    error_log(value);
-  }
-}
+    $msgArray = $this->transport->poll();
 
-class SendRequest extends Request
-{
-  function __construct(/* int */ $queryId, Message $msg, /* int */ $timeout = null)
-  {
-    parent::__construct($queryId, $msg, $timeout);
-  }
-  
-  public function sent(JampClient $client)
-  {
-    $client->removeRequest($this->queryId);
-  }
-}
-
-class QueryRequest extends Request
-{
-  private $callback;
-  private $result;
-  
-  function __construct(/* int */ $queryId, Message $msg, callable $callback = null, int $timeout = null)
-  {
-    parent::__construct($queryId, $msg, $timeout);
-    
-    $this->callback = $callback;
-  }
-  
-  public function completed(JampClient $client, $value)
-  {
-    $this->result = $value;
-    
-    $client->removeRequest($this->queryId);
-        
-    $callback = $this->callback;
-    
-    if ($callback !== null) {
-      $callback($value);
+    foreach ($msgArray as $msg) {
+      $this->onMessage($msg);
     }
+    
+    return count($msgArray);
   }
   
-  public function error(JampClient $client, $value)
+  private function onMessage(Message $msg)
   {
-    $client->removeRequest($this->queryId);
-    
-    if ($this->callback !== null && $this->callback->onFail !== null) {
-      $this->callback->onFail($value);
+    if ($msg instanceof ReplyMessage) {
+      $queryId = $msg->getQueryId();
+      $result = $this->removeResult($queryId);
+      
+      if ($result !== null) {
+        $result->complete($msg->getValue());
+      }
+      else {
+        throw new \Exception('cannot find request for query id: ' . queryId);
+      }
+    }
+    else if ($msg instanceof ErrorMessage) {
+      $queryId = $msg->getQueryId();
+      $result = $this->removeResult($queryId);
+      
+      if ($result !== null) {
+        $result->fail($msg->getError());
+      }
+      else {
+        throw new \Exception('cannot find request for query id: ' . queryId);
+      }
+    }
+    else if ($msg instanceof SendMessage) {
+      $listener = $this->getListener($msg->address);
+      
+      $method = $msg->method;
+      
+      $listener->$method($msg->args);
     }
     else {
-      error_log($value);
+      throw new \Exception('unexpected jamp message type: ' . msg);
     }
   }
   
-  public function getResult()
+  private function removeResult(/* int */ $queryId)
   {
-    return $this->result;
+    $result = $this->resultMap[$queryId];
+    
+    unset($this->resultMap[$queryId]);
+    
+    return $result;
+  }
+  
+  private function getListener(/* string */ $listenerAddress)
+  {
+    return $this->listenerMap[$listenerAddress];
+  }
+  
+  public function close()
+  {
+    $this->transport->close();
+  }
+}
+
+class Result
+{ 
+  private $isCompleted;
+  private $isFailed;
+  
+  private $value;
+  private $error;
+  
+  public function __construct()
+  {
+  }
+  
+  public function complete($value)
+  {
+    $this->isCompleted = true;
+    $this->value = $value;
+  }
+  
+  public function fail($error)
+  {
+    $this->isFailed = true;
+    $this->error = $error;
+  }
+  
+  public function isCompleted()
+  {
+    return $this->isCompleted;
+  }
+  
+  public function isFailed()
+  {
+    return $this->isFailed;
+  }
+  
+  public function getValue()
+  {
+    return $this->value;
+  }
+  
+  public function getError()
+  {
+    return $this->error;
   }
 }
 
