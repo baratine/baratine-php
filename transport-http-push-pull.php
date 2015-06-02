@@ -51,7 +51,7 @@ class HttpPushPullTransport extends Transport
       throw new \Exception('error submitting message: ' . curl_error($curl));
     }
     
-    log('query received: ' . $data);
+    log('query response: ' . $data);
     
     $responses = array();
     
@@ -91,7 +91,7 @@ class HttpPushPullTransport extends Transport
     curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($curl, CURLOPT_POSTFIELDS, $json);
     
-    log('query sent: ' . $json);
+    log('querySync sent: ' . $json);
     
     $data = curl_exec($curl);
     
@@ -99,7 +99,7 @@ class HttpPushPullTransport extends Transport
       throw new \Exception('error submitting message: ' . curl_error($curl));
     }
     
-    log('query received: ' . $data);
+    log('querySync response: ' . $data);
     
     $responses = array();
     
@@ -137,7 +137,7 @@ class HttpPushPullTransport extends Transport
     
     $data = curl_exec($curl);
     
-    log('poll received: ' . $data);
+    log('poll response: ' . $data);
     
     if ($data === false) {
       throw new Exception('error polling: ' . curl_error($curl));

@@ -102,14 +102,22 @@ class JampClientImpl extends JampClient
   {
     $result = new Result();
     
-    /*
     $msg = $this->initQuery($service, $method, $result, $args, $headerMap);
   
-    $response = $this->transport->querySync($msg);
+    $msgArray = $this->transport->querySync($msg);
     
-    var_dump($response);
-    die();
-    */
+    foreach ($msgArray as $msg) {
+      $this->onMessage($msg);
+    }
+    
+    if ($result->isFailed()) {
+      throw new \Exception($result->getError());
+    }
+    else {
+      return $result->getValue();
+    }
+    
+    /*
     
     $this->query($service, $method, $result, $args, $headerMap);
     
@@ -146,6 +154,8 @@ class JampClientImpl extends JampClient
       
       throw new \Exception($error);
     }
+    
+    */
   }
   
   private function initQuery(/* string */ $service,
