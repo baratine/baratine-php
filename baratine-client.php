@@ -10,13 +10,8 @@ abstract class BaratineClient
   {
     return new BaratineClientImpl($url);
   }
-
-  public abstract function lookup(/* string */ $url);
   
-  public function _lookup(/* string */ $url)
-  {
-    return $this->lookup($url);
-  }
+  public abstract function _lookup(/* string */ $url);
   
   public abstract function close();
 }
@@ -30,16 +25,11 @@ class BaratineClientImpl extends BaratineClient
     $this->jampClient = JampClient::create($url);
   }
 
-  public function lookup(/* string */ $url)
+  public function _lookup(/* string */ $url)
   {
     return new Proxy($this->jampClient, $url);
   }
-  
-  public function _lookup(/* string */ $url)
-  {
-    return $this->lookup($url);
-  }
-  
+
   public function close()
   {
     $this->jampClient->close();
