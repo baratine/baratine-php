@@ -12,6 +12,13 @@ abstract class BaratineClient
   }
 
   public abstract function lookup(/* string */ $url);
+  
+  public function _lookup(/* string */ $url)
+  {
+    return $this->lookup($url);
+  }
+  
+  public abstract function close();
 }
 
 class BaratineClientImpl extends BaratineClient
@@ -27,11 +34,22 @@ class BaratineClientImpl extends BaratineClient
   {
     return new Proxy($this->jampClient, $url);
   }
+  
+  public function _lookup(/* string */ $url)
+  {
+    return $this->lookup($url);
+  }
+  
+  public function close()
+  {
+    $this->jampClient->close();
+  }
 }
 
 class Proxy
 {
   private $jampClient;
+  private $serviceName;
   
   public function __construct(JampClient $jampClient, $serviceName)
   {
@@ -39,26 +57,28 @@ class Proxy
     
     $this->serviceName = $serviceName;
   }
-  
-  public function call($name, $arguments)
-  {
-    return __call($name, $arguments);
-  }
-  
+
   public function __call($name, $arguments)
   {
     return $this->jampClient->querySync($this->serviceName, $name, $arguments);
   }
   
-  public function asClass(/* string */ $clsName)
+  public function _as(/* string */ $clsName)
   {
     return new ClassProxy($this, $clsName);
+  }
+  
+  public function _lookup(/* string */ $url)
+  {
+    return new Proxy($this->jampClient, $this->serviceName . $url);
   }
 }
 
 class ClassProxy
 {
   private $proxy;
+  private $clsName;
+  
   private $cls;
 
   public function __construct(Proxy $proxy,
@@ -70,18 +90,33 @@ class ClassProxy
     $this->cls = new \ReflectionClass($clsName);
   }
   
+  public function _lookup(/* string */ $url)
+  {
+    $proxy = $this->proxy->_lookup($url);
+    
+    return new ClassProxy($proxy, $this->clsName);
+  }
+  
+  public function _as(/* string */ $clsName)
+  {
+    return new ClassProxy($this->proxy, $clsName);
+  }
+  
   public function __call($name, $arguments)
   {
     $method = $this->cls->getMethod($name);
     
-    $this->checkArguments($method, $arguments);
+    $this->_checkArguments($method, $arguments);
     
     return $this->proxy->__call($name, $arguments);
   }
-  
-  private function checkArguments($method, $arguments)
+
+  private function _checkArguments($method, &$arguments)
   {
     $requiredCount = $method->getNumberOfRequiredParameters();
+    $requiredAndOptionalCount = $method->getNumberOfParameters();
+    
+    $argCount = count($arguments);
     
     /*
     $requiredCount = 0;
@@ -101,16 +136,21 @@ class ClassProxy
     }
     */
     
-    if (count($arguments) < $requiredCount) {
-      throw new \Exception("required $requireCount parameters but saw only {count($arguments)}");
+    if ($argCount < $requiredCount) {
+      throw new \Exception("required $requiredCount parameters but saw $argCount");
+    }
+    else if ($argCount > $requiredAndOptionalCount) {
+      throw new \Exception("needed only $requiredAndOptionalCount parameters but saw $argCount");
     }
     
-    $this->checkTypes($method, $arguments);
+    $this->_checkTypes($method, $arguments);
   }
   
-  private function checkTypes($method, $arguments)
+  private function _checkTypes($method, &$arguments)
   {
     $parameters = $method->getParameters();
+    
+    $i = 0;
     
     for ($i = 0; $i < count($arguments); $i++) {
       $arg = $arguments[$i];
@@ -118,9 +158,42 @@ class ClassProxy
       
       $cls = $param->getClass();
       
-      if ($cls != null && ! $cls->isInstance($arg)) {
-        throw new \Exception('expected ' . $cls->getName() . ' but saw ' . get_class($arg));
+      if ($cls != null) {
+        if (is_object($arg) && is_a($arg, $cls->getName())) {
+        }
+        else if ($arg === null
+                 && $param->isDefaultValueAvailable()
+                 && $param->getDefaultValue() === null) {
+        }
+        else {
+          $type;
+          
+          if (is_object($arg)) {
+            $type = get_class($arg);
+          }
+          else {
+            $type = gettype($arg);
+          }
+          
+          throw new \Exception('expected ' . $cls->getName() . ' but saw ' . $type);
+        }
       }
+    }
+    
+    for (; $i < count($parameters); $i++) {
+      $param = $parameters[$i];
+      
+      if ($param->isDefaultValueAvailable()) {
+        for ($j = $i; $j < count($arguments); $j++) {
+          $arguments[] = null;
+        }
+        
+        $arguments[] = $param->getDefaultValue();
+      }
+    }
+    
+    for ($i = count($arguments); $i < count($parameters); $i++) {
+      $arguments[] = null;
     }
   }
 }

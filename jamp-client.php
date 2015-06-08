@@ -111,7 +111,16 @@ class JampClientImpl extends JampClient
     }
     
     if ($result->isFailed()) {
-      throw new \Exception($result->getError());
+      $error = $result->getError();
+      
+      if (is_object($error)) {
+        $error = $error->message;
+      }
+      else {
+        $error = (string) $error;
+      }
+
+      throw new \Exception($error);
     }
     else {
       return $result->getValue();

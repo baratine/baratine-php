@@ -20,21 +20,38 @@ class HttpPushPullTransport extends Transport
   
   public function send(Message $msg)
   {
-    if ($this->curl === null) {
-      throw new Exception('connection already closed');
+    $json = $msg->serialize();
+    $json = '[' . $json . ']';
+    
+    $curl = $this->getCurl();
+    
+    curl_setopt($curl, CURLOPT_POST, true);
+    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+    
+    $headers = array('Content-Type: x-application/jamp-push');
+    
+    curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($curl, CURLOPT_POSTFIELDS, $json);
+    
+    log('send sent: ' . $json);
+    
+    $data = curl_exec($curl);
+    
+    if ($data === false) {
+      throw new \Exception('error submitting message: ' . curl_error($curl));
     }
+    
+    log('send response: ' . $data);
+    
+    return true;
   }
   
   public function query(QueryMessage $msg)
   {
-    if ($this->curl === null) {
-      throw new \Exception('connection already closed');
-    }
-
     $json = $msg->serialize();
     $json = '[' . $json . ']';
     
-    $curl = $this->curl;
+    $curl = $this->getCurl();
     
     curl_setopt($curl, CURLOPT_POST, true);
     
@@ -74,14 +91,10 @@ class HttpPushPullTransport extends Transport
   
   public function querySync(QueryMessage $msg)
   {
-    if ($this->curl === null) {
-      throw new \Exception('connection already closed');
-    }
-
     $json = $msg->serialize();
     $json = '[' . $json . ']';
     
-    $curl = $this->curl;
+    $curl = $this->getCurl();
     
     curl_setopt($curl, CURLOPT_POST, true);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
@@ -122,11 +135,7 @@ class HttpPushPullTransport extends Transport
   
   public function poll()
   {
-    if ($this->curl === null) {
-      return;
-    }
-    
-    $curl = $this->curl;
+    $curl = $this->getCurl();
     
     curl_setopt($curl, CURLOPT_HTTPGET, true);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
@@ -166,6 +175,16 @@ class HttpPushPullTransport extends Transport
     $this->curl = null;
   }
   
+  private function getCurl()
+  {
+    $curl = $this->curl;
+    
+    if ($curl == null) {
+      throw new Exception('connection already closed');
+    }
+    
+    return $curl;
+  }
 }
 
 function log($msg)
