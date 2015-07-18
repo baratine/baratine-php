@@ -17,11 +17,13 @@ Usage
 
   <?php
 
-  require_once('baratine-php/baratine-client.php');
+  //require_once('baratine-php/src/Baratine/baratine-client.php');
+
+  use Baratine\BaratineClient;
 
   function main()
   {
-    $client = new baratine\BaratineClient('http://127.0.0.1:8085/s/pod');
+    $client = new BaratineClient('http://127.0.0.1:8085/s/pod');
 
     $counter = $client->_lookup('/counter/123')->_as('CounterService');
 
