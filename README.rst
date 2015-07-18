@@ -11,13 +11,27 @@ Installation
   $ composer require baratine/baratine
 
 
+Your composer.json should look like:
+::
+
+  {
+      "require": {
+          "baratine/baratine": "*"
+      }
+  }
+
+
 Usage
 ---------
 ::
 
   <?php
 
+  // manually
   //require_once('baratine-php/src/Baratine/baratine-client.php');
+
+  // with composer
+  require_once('vendor/autoload.php');
 
   use Baratine\BaratineClient;
 
