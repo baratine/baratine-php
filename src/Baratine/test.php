@@ -1,6 +1,6 @@
 <?php
 
-namespace baratine;
+namespace Baratine;
 
 //$file = fopen('http://192.168.1.147:8085/s/pod/map/5?m=getAll');
 

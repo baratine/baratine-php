@@ -1,6 +1,6 @@
 <?php
 
-namespace baratine;
+namespace Baratine;
 
 require_once('jamp-client.php');
 

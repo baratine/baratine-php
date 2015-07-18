@@ -1,6 +1,6 @@
 <?php
 
-namespace baratine;
+namespace Baratine;
 
 require_once('transport-http.php');
 require_once('transport-http-push-pull.php');
