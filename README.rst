@@ -8,7 +8,7 @@ Installation
 
 ::
 
-  $ composer require baratine/baratine
+  $ composer require baratine/baratine dev-master
 
 
 Your composer.json should look like:
@@ -16,7 +16,7 @@ Your composer.json should look like:
 
   {
       "require": {
-          "baratine/baratine": "*"
+          "baratine/baratine": "dev-master"
       }
   }
 

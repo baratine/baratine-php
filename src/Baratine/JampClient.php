@@ -2,8 +2,8 @@
 
 namespace Baratine;
 
-require_once('jamp.php');
-require_once('transport.php');
+require_once('Jamp.php');
+require_once('Transport.php');
 
 abstract class JampClient
 {

@@ -7,7 +7,7 @@ namespace Baratine;
 var_dump(file_get_contents('http://192.168.1.147:8085/s/pod/map/5?m=getAll'));
 
 
-require_once('jamp-client.php');
+require_once('JampClient.php');
 
 $msg = Jamp::unserialize('["query",{},"me",11,"/foo","getUserCount"]');
 echo ($msg->serialize());

@@ -2,8 +2,8 @@
 
 namespace Baratine;
 
-require_once('transport-http.php');
-require_once('transport-http-push-pull.php');
+require_once('HttpTransport.php');
+require_once('HttpPushPullTransport.php');
 
 abstract class Transport
 {

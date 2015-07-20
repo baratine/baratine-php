@@ -2,7 +2,7 @@
 
 namespace Baratine;
 
-require_once('jamp-client.php');
+require_once('JampClient.php');
 
 abstract class BaratineClient
 {
